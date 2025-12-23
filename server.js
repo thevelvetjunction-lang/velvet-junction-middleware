@@ -32,6 +32,9 @@ app.get("/twilio/stream", { websocket: true }, (connection) => {
   app.log.info("✅ Twilio stream connected");
 
   let dgConnection;
+  let audioFrameCount = 0;
+  let totalAudioBytes = 0;
+  
   try {
     dgConnection = deepgram.listen.live({
       model: "nova-2",
@@ -41,39 +44,62 @@ app.get("/twilio/stream", { websocket: true }, (connection) => {
       interim_results: true,
       punctuate: true,
     });
+
+    if (!dgConnection) {
+      app.log.error("Deepgram connection is null or undefined");
+      connection.socket.close();
+      return;
+    }
+
+    dgConnection.on("open", () => {
+      app.log.info("✅ Deepgram connection established");
+      audioFrameCount = 0;
+      totalAudioBytes = 0;
+    });
+
+    dgConnection.on("transcriptReceived", (data) => {
+      try {
+        const transcript = data.channel?.alternatives?.[0]?.transcript;
+        if (transcript && transcript.length > 0) {
+          app.log.info(`Caller said: ${transcript}`);
+        }
+      } catch (err) {
+        app.log.error("Error processing transcript:", err.message);
+      }
+    });
+
+    dgConnection.on("error", (err) => {
+      app.log.error("Deepgram error:", err.message || err);
+    });
+
+    dgConnection.on("close", () => {
+      app.log.info(`Deepgram connection closed. Total frames sent: ${audioFrameCount}, Total bytes: ${totalAudioBytes}`);
+    });
+
   } catch (err) {
-    app.log.error("Failed to create Deepgram connection:", err);
+    app.log.error("Failed to create Deepgram connection:", err.message || err);
     connection.socket.close();
     return;
   }
-
-  dgConnection.on("open", () => {
-    app.log.info("✅ Deepgram connection established");
-  });
-
-  dgConnection.on("transcriptReceived", (data) => {
-    const transcript = data.channel?.alternatives?.[0]?.transcript;
-    if (transcript && transcript.length > 0) {
-      app.log.info(`Caller said: ${transcript}`);
-    }
-  });
-
-  dgConnection.on("error", (err) => {
-    app.log.error("Deepgram error:", err);
-  });
-
-  dgConnection.on("close", () => {
-    app.log.info("Deepgram connection closed");
-  });
 
   connection.socket.on("message", (raw) => {
     try {
       const msg = JSON.parse(raw.toString());
 
       if (msg.event === "media") {
-        app.log.info("Twilio media message received");
         const audio = Buffer.from(msg.media.payload, "base64");
-        dgConnection.send(audio);
+        audioFrameCount++;
+        totalAudioBytes += audio.length;
+        
+        if (audioFrameCount % 10 === 0) {
+          app.log.info(`Audio frame #${audioFrameCount}: ${audio.length} bytes (total: ${totalAudioBytes} bytes)`);
+        }
+        
+        if (dgConnection && dgConnection.send) {
+          dgConnection.send(audio);
+        } else {
+          app.log.warn("Deepgram connection not ready, cannot send audio");
+        }
       } else if (msg.event === "start") {
         app.log.info("Twilio stream started");
       } else if (msg.event === "stop") {
@@ -85,7 +111,13 @@ app.get("/twilio/stream", { websocket: true }, (connection) => {
   });
 
   connection.socket.on("close", () => {
-    dgConnection.finish();
+    try {
+      if (dgConnection && dgConnection.finish) {
+        dgConnection.finish();
+      }
+    } catch (err) {
+      app.log.error("Error finishing Deepgram connection:", err.message);
+    }
     app.log.info("🔌 Twilio stream disconnected");
   });
 });
