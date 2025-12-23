@@ -45,7 +45,7 @@ app.get("/twilio/stream", { websocket: true }, (connection) => {
   dgConnection.on("transcriptReceived", (data) => {
     const transcript = data.channel?.alternatives?.[0]?.transcript;
     if (transcript && transcript.length > 0) {
-      console.log("🗣️ Caller said:", transcript);
+      app.log.info(`Caller said: ${transcript}`);
     }
   });
 
