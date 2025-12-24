@@ -8,23 +8,22 @@ const app = Fastify({ logger: true });
 await app.register(formbody);
 await app.register(websocket);
 
-// Create Deepgram client - wrap in try-catch to prevent startup crash
 let deepgram;
 try {
   deepgram = createClient(process.env.DEEPGRAM_API_KEY);
   app.log.info("✅ Deepgram client initialized");
 } catch (err) {
   app.log.error("Failed to initialize Deepgram client:", err.message);
-  app.log.warn("⚠️ Deepgram client initialization failed - check DEEPGRAM_API_KEY");
 }
 
 const PORT = process.env.PORT || 3000;
 
 app.post("/twilio/voice", async (req, reply) => {
-  const host = req.headers["x-forwarded-host"] || "velvet-junction-middleware-production.up.railway.app";
-  const streamUrl = `wss://${host}/twilio/stream`;
+  try {
+    const host = req.headers["x-forwarded-host"] || "velvet-junction-middleware-production.up.railway.app";
+    const streamUrl = `wss://${host}/twilio/stream`;
 
-  const twiml = `<?xml version="1.0" encoding="UTF-8"?>
+    const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say>Connecting you now.</Say>
   <Connect>
@@ -33,7 +32,11 @@ app.post("/twilio/voice", async (req, reply) => {
   <Pause length="60"/>
 </Response>`;
 
-  reply.header("Content-Type", "text/xml").send(twiml);
+    reply.header("Content-Type", "text/xml").send(twiml);
+  } catch (err) {
+    app.log.error("Error in /twilio/voice:", err.message);
+    reply.status(500).send("Error");
+  }
 });
 
 app.get("/twilio/stream", { websocket: true }, (connection) => {
@@ -136,11 +139,14 @@ app.get("/twilio/stream", { websocket: true }, (connection) => {
   });
 });
 
-app.get("/health", async () => ({ ok: true }));
+app.get("/health", async () => {
+  return { ok: true };
+});
 
-app.listen({ port: PORT, host: "0.0.0.0" }).then(() => {
-  app.log.info(`Server listening on ${PORT}`);
-}).catch((err) => {
+try {
+  await app.listen({ port: PORT, host: "0.0.0.0" });
+  app.log.info(`Server listening on port ${PORT}`);
+} catch (err) {
   app.log.error("Failed to start server:", err.message);
   process.exit(1);
-});
+}
