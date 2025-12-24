@@ -2,7 +2,7 @@ import "dotenv/config";
 import Fastify from "fastify";
 import formbody from "@fastify/formbody";
 import websocket from "@fastify/websocket";
-import { createClient } from "@deepgram/sdk";
+import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
 
 const app = Fastify({ logger: true });
 
@@ -57,51 +57,47 @@ app.get("/twilio/stream", { websocket: true }, (socket, request) => {
   let audioFrameCount = 0;
   let totalAudioBytes = 0;
 
-  const setupDeepgram = async () => {
-    try {
-      dgConnection = deepgram.listen.live({
-        model: "nova-2",
-        language: "en",
-        encoding: "mulaw",
-        sample_rate: 8000,
-        interim_results: true,
-        punctuate: true,
-      });
+  try {
+    dgConnection = deepgram.listen.live({
+      model: "nova-2",
+      language: "en",
+      encoding: "mulaw",
+      sample_rate: 8000,
+      interim_results: true,
+      punctuate: true,
+    });
 
-      app.log.info("✅ Deepgram connection created");
+    app.log.info("✅ Deepgram connection created");
 
-      dgConnection.on("Results", (data) => {
-        try {
-          if (data.channel?.alternatives?.[0]?.transcript) {
-            const transcript = data.channel.alternatives[0].transcript;
-            if (transcript && transcript.length > 0) {
-              app.log.info(`Caller said: ${transcript}`);
-            }
-          }
-        } catch (err) {
-          app.log.error("Error processing transcript:", err.message);
+    // Use the correct event constants from the SDK
+    dgConnection.on(LiveTranscriptionEvents.Open, () => {
+      app.log.info("✅ Deepgram connection established and ready");
+    });
+
+    dgConnection.on(LiveTranscriptionEvents.Transcript, (data) => {
+      try {
+        const transcript = data.channel?.alternatives?.[0]?.transcript;
+        if (transcript && transcript.length > 0) {
+          app.log.info(`Caller said: ${transcript}`);
         }
-      });
+      } catch (err) {
+        app.log.error("Error processing transcript:", err.message);
+      }
+    });
 
-      dgConnection.on("error", (err) => {
-        app.log.error("Deepgram error:", err?.message || err?.toString() || "Unknown error");
-      });
+    dgConnection.on(LiveTranscriptionEvents.Error, (err) => {
+      app.log.error("Deepgram error:", err?.message || err?.toString() || "Unknown error");
+    });
 
-      dgConnection.on("close", () => {
-        app.log.info(`Deepgram closed. Frames: ${audioFrameCount}, Bytes: ${totalAudioBytes}`);
-      });
+    dgConnection.on(LiveTranscriptionEvents.Close, () => {
+      app.log.info(`Deepgram closed. Frames: ${audioFrameCount}, Bytes: ${totalAudioBytes}`);
+    });
 
-      dgConnection.on("open", () => {
-        app.log.info("✅ Deepgram connection established");
-      });
-
-    } catch (err) {
-      app.log.error("Failed to create Deepgram connection:", err.message || err);
-      socket.close();
-    }
-  };
-
-  await setupDeepgram();
+  } catch (err) {
+    app.log.error("Failed to create Deepgram connection:", err.message || err);
+    socket.close();
+    return;
+  }
 
   socket.on("message", (data) => {
     try {
