@@ -56,7 +56,6 @@ app.get("/twilio/stream", { websocket: true }, (socket, request) => {
   let dgConnection = null;
   let audioFrameCount = 0;
   let totalAudioBytes = 0;
-  let dgReady = false;
 
   try {
     dgConnection = deepgram.listen.live({
@@ -68,8 +67,9 @@ app.get("/twilio/stream", { websocket: true }, (socket, request) => {
       punctuate: true,
     });
 
+    app.log.info("✅ Deepgram connection created, waiting for ready...");
+
     dgConnection.on("open", () => {
-      dgReady = true;
       app.log.info("✅ Deepgram connection established and ready");
     });
 
@@ -81,7 +81,7 @@ app.get("/twilio/stream", { websocket: true }, (socket, request) => {
     });
 
     dgConnection.on("error", (err) => {
-      app.log.error("Deepgram error:", err?.message || JSON.stringify(err) || "Unknown error");
+      app.log.error("Deepgram error event:", err?.message || JSON.stringify(err) || "Unknown error");
     });
 
     dgConnection.on("close", () => {
@@ -104,13 +104,15 @@ app.get("/twilio/stream", { websocket: true }, (socket, request) => {
         totalAudioBytes += audio.length;
 
         if (audioFrameCount % 10 === 0) {
-          app.log.info(`Audio frame #${audioFrameCount}: ${audio.length} bytes, dgReady: ${dgReady}`);
+          app.log.info(`Audio frame #${audioFrameCount}: ${audio.length} bytes`);
         }
 
-        if (dgConnection && dgReady) {
-          dgConnection.send(audio);
-        } else if (!dgReady) {
-          app.log.warn("Deepgram not ready yet, buffering audio");
+        if (dgConnection) {
+          try {
+            dgConnection.send(audio);
+          } catch (sendErr) {
+            app.log.error("Error sending audio to Deepgram:", sendErr.message);
+          }
         }
       } else if (msg.event === "start") {
         app.log.info("Twilio stream started");
