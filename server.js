@@ -8,7 +8,15 @@ const app = Fastify({ logger: true });
 await app.register(formbody);
 await app.register(websocket);
 
-const deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+// Create Deepgram client - wrap in try-catch to prevent startup crash
+let deepgram;
+try {
+  deepgram = createClient(process.env.DEEPGRAM_API_KEY);
+  app.log.info("✅ Deepgram client initialized");
+} catch (err) {
+  app.log.error("Failed to initialize Deepgram client:", err.message);
+  app.log.warn("⚠️ Deepgram client initialization failed - check DEEPGRAM_API_KEY");
+}
 
 const PORT = process.env.PORT || 3000;
 
@@ -30,6 +38,12 @@ app.post("/twilio/voice", async (req, reply) => {
 
 app.get("/twilio/stream", { websocket: true }, (connection) => {
   app.log.info("✅ Twilio stream connected");
+
+  if (!deepgram) {
+    app.log.error("Deepgram client not initialized");
+    connection.socket.close();
+    return;
+  }
 
   let dgConnection;
   let audioFrameCount = 0;
@@ -126,4 +140,7 @@ app.get("/health", async () => ({ ok: true }));
 
 app.listen({ port: PORT, host: "0.0.0.0" }).then(() => {
   app.log.info(`Server listening on ${PORT}`);
+}).catch((err) => {
+  app.log.error("Failed to start server:", err.message);
+  process.exit(1);
 });
