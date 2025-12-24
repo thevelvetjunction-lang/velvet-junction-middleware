@@ -2,13 +2,14 @@ import "dotenv/config";
 import Fastify from "fastify";
 import formbody from "@fastify/formbody";
 import websocket from "@fastify/websocket";
-import { createClient, LiveTranscriptionEvents } from "@deepgram/sdk";
+import { createClient } from "@deepgram/sdk";
 
 const app = Fastify({ logger: true });
 
 await app.register(formbody);
 await app.register(websocket);
 
+// Initialise Deepgram
 let deepgram = null;
 try {
   deepgram = createClient(process.env.DEEPGRAM_API_KEY);
@@ -19,15 +20,14 @@ try {
 
 const PORT = process.env.PORT || 3000;
 
-app.get("/health", async (request, reply) => {
-  return { status: "ok" };
-});
+// Health check
+app.get("/health", async () => ({ status: "ok" }));
 
+// Twilio Voice webhook – returns TwiML with a Stream and a Pause to keep the call alive
 app.post("/twilio/voice", async (request, reply) => {
   try {
-    const host = request.headers["x-forwarded-host"] || "velvet-junction-middleware-production.up.railway.app";
-    const streamUrl = `wss://${host}/twilio/stream`;
-
+    // Use your Railway domain explicitly to avoid localhost
+    const streamUrl = "wss://velvet-junction-middleware-production.up.railway.app/twilio/stream";
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say>Connecting you now.</Say>
@@ -36,7 +36,6 @@ app.post("/twilio/voice", async (request, reply) => {
   </Connect>
   <Pause length="60"/>
 </Response>`;
-
     reply.type("application/xml").send(twiml);
   } catch (err) {
     app.log.error("Error in /twilio/voice:", err.message);
@@ -44,7 +43,8 @@ app.post("/twilio/voice", async (request, reply) => {
   }
 });
 
-app.get("/twilio/stream", { websocket: true }, (socket, request) => {
+// WebSocket endpoint for Twilio Media Streams
+app.get("/twilio/stream", { websocket: true }, (socket) => {
   app.log.info("✅ Twilio stream connected");
 
   if (!deepgram) {
@@ -53,9 +53,9 @@ app.get("/twilio/stream", { websocket: true }, (socket, request) => {
     return;
   }
 
-  let dgConnection = null;
-  let audioFrameCount = 0;
-  let totalAudioBytes = 0;
+  let dgConnection;
+  let frameCount = 0;
+  let totalBytes = 0;
 
   try {
     dgConnection = deepgram.listen.live({
@@ -67,51 +67,43 @@ app.get("/twilio/stream", { websocket: true }, (socket, request) => {
       punctuate: true,
     });
 
-    app.log.info("✅ Deepgram connection created");
-
-    // Use the correct event constants from the SDK
-    dgConnection.on(LiveTranscriptionEvents.Open, () => {
+    // Event handlers for the live stream
+    dgConnection.on("open", () => {
       app.log.info("✅ Deepgram connection established and ready");
     });
 
-    dgConnection.on(LiveTranscriptionEvents.Transcript, (data) => {
-      try {
-        const transcript = data.channel?.alternatives?.[0]?.transcript;
-        if (transcript && transcript.length > 0) {
-          app.log.info(`Caller said: ${transcript}`);
-        }
-      } catch (err) {
-        app.log.error("Error processing transcript:", err.message);
+    dgConnection.on("transcriptReceived", (data) => {
+      const transcript = data.channel?.alternatives?.[0]?.transcript;
+      if (transcript && transcript.length > 0) {
+        app.log.info(`Caller said: ${transcript}`);
       }
     });
 
-    dgConnection.on(LiveTranscriptionEvents.Error, (err) => {
+    dgConnection.on("error", (err) => {
       app.log.error("Deepgram error:", err?.message || err?.toString() || "Unknown error");
     });
 
-    dgConnection.on(LiveTranscriptionEvents.Close, () => {
-      app.log.info(`Deepgram closed. Frames: ${audioFrameCount}, Bytes: ${totalAudioBytes}`);
+    dgConnection.on("close", () => {
+      app.log.info(`Deepgram closed. Frames: ${frameCount}, Bytes: ${totalBytes}`);
     });
-
   } catch (err) {
     app.log.error("Failed to create Deepgram connection:", err.message || err);
     socket.close();
     return;
   }
 
+  // Handle incoming Twilio media messages
   socket.on("message", (data) => {
     try {
       const msg = JSON.parse(data.toString());
-
       if (msg.event === "media") {
         const audio = Buffer.from(msg.media.payload, "base64");
-        audioFrameCount++;
-        totalAudioBytes += audio.length;
-
-        if (audioFrameCount % 10 === 0) {
-          app.log.info(`Audio frame #${audioFrameCount}: ${audio.length} bytes`);
+        frameCount++;
+        totalBytes += audio.length;
+        // Optional: log every 10 frames
+        if (frameCount % 10 === 0) {
+          app.log.info(`Audio frame #${frameCount}: ${audio.length} bytes`);
         }
-
         if (dgConnection) {
           try {
             dgConnection.send(audio);
@@ -145,6 +137,7 @@ app.get("/twilio/stream", { websocket: true }, (socket, request) => {
   });
 });
 
+// Start the Fastify server
 const start = async () => {
   try {
     await app.listen({ port: PORT, host: "0.0.0.0" });
