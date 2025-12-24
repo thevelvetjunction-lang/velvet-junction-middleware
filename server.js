@@ -57,42 +57,51 @@ app.get("/twilio/stream", { websocket: true }, (socket, request) => {
   let audioFrameCount = 0;
   let totalAudioBytes = 0;
 
-  try {
-    dgConnection = deepgram.listen.live({
-      model: "nova-2",
-      language: "en",
-      encoding: "mulaw",
-      sample_rate: 8000,
-      interim_results: true,
-      punctuate: true,
-    });
+  const setupDeepgram = async () => {
+    try {
+      dgConnection = deepgram.listen.live({
+        model: "nova-2",
+        language: "en",
+        encoding: "mulaw",
+        sample_rate: 8000,
+        interim_results: true,
+        punctuate: true,
+      });
 
-    app.log.info("✅ Deepgram connection created, waiting for ready...");
+      app.log.info("✅ Deepgram connection created");
 
-    dgConnection.on("open", () => {
-      app.log.info("✅ Deepgram connection established and ready");
-    });
+      dgConnection.on("Results", (data) => {
+        try {
+          if (data.channel?.alternatives?.[0]?.transcript) {
+            const transcript = data.channel.alternatives[0].transcript;
+            if (transcript && transcript.length > 0) {
+              app.log.info(`Caller said: ${transcript}`);
+            }
+          }
+        } catch (err) {
+          app.log.error("Error processing transcript:", err.message);
+        }
+      });
 
-    dgConnection.on("transcriptReceived", (data) => {
-      const transcript = data.channel?.alternatives?.[0]?.transcript;
-      if (transcript && transcript.length > 0) {
-        app.log.info(`Caller said: ${transcript}`);
-      }
-    });
+      dgConnection.on("error", (err) => {
+        app.log.error("Deepgram error:", err?.message || err?.toString() || "Unknown error");
+      });
 
-    dgConnection.on("error", (err) => {
-      app.log.error("Deepgram error event:", err?.message || JSON.stringify(err) || "Unknown error");
-    });
+      dgConnection.on("close", () => {
+        app.log.info(`Deepgram closed. Frames: ${audioFrameCount}, Bytes: ${totalAudioBytes}`);
+      });
 
-    dgConnection.on("close", () => {
-      app.log.info(`Deepgram closed. Frames: ${audioFrameCount}, Bytes: ${totalAudioBytes}`);
-    });
+      dgConnection.on("open", () => {
+        app.log.info("✅ Deepgram connection established");
+      });
 
-  } catch (err) {
-    app.log.error("Failed to create Deepgram connection:", err.message || err);
-    socket.close();
-    return;
-  }
+    } catch (err) {
+      app.log.error("Failed to create Deepgram connection:", err.message || err);
+      socket.close();
+    }
+  };
+
+  await setupDeepgram();
 
   socket.on("message", (data) => {
     try {
