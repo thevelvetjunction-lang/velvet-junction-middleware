@@ -115,7 +115,15 @@ app.get("/twilio/stream", { websocket: true }, (socket) => {
   });
 
   dg.on(LiveTranscriptionEvents.Error, (err) => {
-    app.log.error("❌ Deepgram error:", err?.message || JSON.stringify(err));
+    app.log.error("❌ Deepgram error details:", {
+      message: err?.message || "No message",
+      code: err?.code || "No code",
+      status: err?.status || "No status",
+      type: err?.type || "No type",
+      toString: err?.toString?.() || "No toString",
+      keys: Object.keys(err || {}),
+      fullError: JSON.stringify(err, null, 2)
+    });
   });
 
   dg.on(LiveTranscriptionEvents.Close, () => {
