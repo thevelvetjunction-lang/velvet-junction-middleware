@@ -23,6 +23,11 @@ app.log.info(
   `Env loaded. DEEPGRAM_API_KEY length: ${process.env.DEEPGRAM_API_KEY.length}`
 );
 
+const apiKey = process.env.DEEPGRAM_API_KEY;
+const keyStart = apiKey.substring(0, 10);
+const keyEnd = apiKey.substring(apiKey.length - 5);
+app.log.info(`API Key format: ${keyStart}...${keyEnd}`);
+
 /* -------------------- DEEPGRAM -------------------- */
 let deepgram;
 try {
@@ -71,6 +76,8 @@ app.get("/twilio/stream", { websocket: true }, (socket) => {
   let queued = [];
 
   try {
+    app.log.info("Creating Deepgram live connection...");
+    
     dg = deepgram.listen.live({
       model: "nova-2",
       language: "en",
@@ -81,55 +88,76 @@ app.get("/twilio/stream", { websocket: true }, (socket) => {
       smart_format: true,
     });
 
-    app.log.info("✅ Deepgram connection created");
+    app.log.info("✅ Deepgram connection object created");
+    app.log.info(`Deepgram connection type: ${typeof dg}`);
+    app.log.info(`Deepgram connection has 'on' method: ${typeof dg.on === 'function'}`);
+    
   } catch (e) {
-    app.log.error("❌ Failed to create Deepgram connection:", e.message);
+    app.log.error("❌ Failed to create Deepgram connection:", {
+      message: e.message,
+      stack: e.stack,
+      code: e.code
+    });
     socket.close();
     return;
   }
 
-  dg.on(LiveTranscriptionEvents.Open, () => {
-    dgOpen = true;
-    app.log.info("✅ Deepgram stream open and ready");
+  // Attach all event listeners IMMEDIATELY
+  try {
+    app.log.info("Attaching Deepgram event listeners...");
 
-    // Flush queued audio
-    for (const buf of queued) {
-      try {
-        dg.send(buf);
-      } catch (err) {
-        app.log.warn("Error sending queued audio:", err.message);
+    dg.on(LiveTranscriptionEvents.Open, () => {
+      dgOpen = true;
+      app.log.info("✅ Deepgram stream open and ready");
+
+      // Flush queued audio
+      app.log.info(`Flushing ${queued.length} queued audio buffers`);
+      for (const buf of queued) {
+        try {
+          dg.send(buf);
+        } catch (err) {
+          app.log.warn("Error sending queued audio:", err.message);
+        }
       }
-    }
-    queued = [];
-  });
-
-  dg.on(LiveTranscriptionEvents.Transcript, (data) => {
-    try {
-      const transcript = data?.channel?.alternatives?.[0]?.transcript;
-      if (transcript && transcript.trim()) {
-        app.log.info(`📞 Caller said: ${transcript}`);
-      }
-    } catch (err) {
-      app.log.warn("Error processing transcript:", err.message);
-    }
-  });
-
-  dg.on(LiveTranscriptionEvents.Error, (err) => {
-    app.log.error("❌ Deepgram error details:", {
-      message: err?.message || "No message",
-      code: err?.code || "No code",
-      status: err?.status || "No status",
-      type: err?.type || "No type",
-      toString: err?.toString?.() || "No toString",
-      keys: Object.keys(err || {}),
-      fullError: JSON.stringify(err, null, 2)
+      queued = [];
     });
-  });
 
-  dg.on(LiveTranscriptionEvents.Close, () => {
-    dgClosed = true;
-    app.log.info("🔌 Deepgram stream closed");
-  });
+    dg.on(LiveTranscriptionEvents.Transcript, (data) => {
+      try {
+        const transcript = data?.channel?.alternatives?.[0]?.transcript;
+        if (transcript && transcript.trim()) {
+          app.log.info(`📞 Caller said: ${transcript}`);
+        }
+      } catch (err) {
+        app.log.warn("Error processing transcript:", err.message);
+      }
+    });
+
+    dg.on(LiveTranscriptionEvents.Error, (err) => {
+      app.log.error("❌ Deepgram WebSocket Error Event Fired");
+      app.log.error("Error object:", err);
+      app.log.error("Error message:", err?.message);
+      app.log.error("Error code:", err?.code);
+      app.log.error("Error status:", err?.status);
+      app.log.error("Error type:", err?.type);
+      if (err) {
+        app.log.error("Error keys:", Object.keys(err));
+        app.log.error("Error toString:", err.toString());
+      }
+    });
+
+    dg.on(LiveTranscriptionEvents.Close, () => {
+      dgClosed = true;
+      app.log.info("🔌 Deepgram stream closed");
+    });
+
+    app.log.info("✅ All Deepgram event listeners attached successfully");
+
+  } catch (listenerErr) {
+    app.log.error("❌ Failed to attach event listeners:", listenerErr.message);
+    socket.close();
+    return;
+  }
 
   socket.on("message", (msg) => {
     try {
@@ -151,7 +179,7 @@ app.get("/twilio/stream", { websocket: true }, (socket) => {
       frames++;
 
       if (frames % 50 === 0) {
-        app.log.info(`📊 Audio flowing (${frames} frames)`);
+        app.log.info(`📊 Audio flowing (${frames} frames, dgOpen: ${dgOpen})`);
       }
 
       if (dgClosed) {
