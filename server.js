@@ -6,9 +6,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const fastify = Fastify({
-  logger: true
-});
+const fastify = Fastify({ logger: true });
 
 // CORS
 await fastify.register(cors, {
@@ -36,12 +34,12 @@ await fastify.register(oauthPlugin, {
     "https://velvet-junction-middleware-production.up.railway.app/auth/google/callback"
 });
 
-// ROOT CHECK
+// Root
 fastify.get("/", async () => {
-  return { status: "Velvet Junction Fastify Auth Running 🚀" };
+  return { status: "Fastify Auth Running 🚀" };
 });
 
-// GOOGLE CALLBACK
+// Callback
 fastify.get("/auth/google/callback", async function (request, reply) {
   const token =
     await this.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
@@ -67,6 +65,6 @@ fastify.get("/auth/google/callback", async function (request, reply) {
   );
 });
 
-// START SERVER
+// Listen
 const port = process.env.PORT || 3000;
 await fastify.listen({ port, host: "0.0.0.0" });
