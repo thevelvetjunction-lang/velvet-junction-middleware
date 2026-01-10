@@ -4,20 +4,23 @@ import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import oauthPlugin from "@fastify/oauth2";
 
-
 const app = Fastify({ logger: true });
 
 // CORS
+// Note: Agar process.env.FRONTEND_URL set nahi hai to ye bhi undefined ho sakta hai. 
+// Testing ke liye aap '*' use kar sakte hain, par production me mat karna.
 await app.register(cors, {
-  origin: process.env.FRONTEND_URL
+  origin: process.env.FRONTEND_URL || "*" 
 });
 
-// JWT
+// ✅ JWT (Static Secret Pass kiya hai testing ke liye)
 await app.register(jwt, {
-  secret: process.env.JWT_SECRET
+  secret: "my_super_secret_temp_key" // 👈 Hardcoded secret
 });
 
 // Google OAuth
+// ⚠️ Dhyan rahe: Agar Railway par GOOGLE_CLIENT_ID set nahi hai, 
+// to code yahan aakar fir crash ho sakta hai.
 await app.register(oauthPlugin, {
   name: "googleOAuth2",
   scope: ["profile", "email"],
@@ -29,8 +32,7 @@ await app.register(oauthPlugin, {
     auth: oauthPlugin.GOOGLE_CONFIGURATION
   },
   startRedirectPath: "/auth/google",
-  callbackUri:
-    "https://velvet-junction-middleware-production.up.railway.app/auth/google/callback"
+  callbackUri: "https://velvet-junction-middleware-production.up.railway.app/auth/google/callback"
 });
 
 // Health check
@@ -41,18 +43,13 @@ app.get("/", async () => ({
 // Google callback
 app.get("/auth/google/callback", async function (request, reply) {
   try {
-    const token =
-      await this.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
+    const token = await this.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
 
-    const user = await fetch(
-      "https://www.googleapis.com/oauth2/v2/userinfo",
-      {
-        headers: {
-          Authorization: `Bearer ${token.access_token}`
-        }
-      }
-    ).then(r => r.json());
+    const user = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+      headers: { Authorization: `Bearer ${token.access_token}` }
+    }).then(r => r.json());
 
+    // JWT Sign karte waqt ab ye upar wala static secret use karega
     const jwtToken = app.jwt.sign({
       googleId: user.id,
       email: user.email,
@@ -60,9 +57,8 @@ app.get("/auth/google/callback", async function (request, reply) {
       picture: user.picture
     }, { expiresIn: "7d" });
 
-    reply.redirect(
-      `${process.env.FRONTEND_URL}/login-success?token=${jwtToken}`
-    );
+    // Redirect
+    reply.redirect(`${process.env.FRONTEND_URL}/login-success?token=${jwtToken}`);
   } catch (err) {
     app.log.error(err, "Google login failed");
     reply.status(500).send("Authentication failed");
