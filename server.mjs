@@ -4,7 +4,6 @@ import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import oauthPlugin from "@fastify/oauth2";
 
-dotenv.config();
 
 const app = Fastify({ logger: true });
 
