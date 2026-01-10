@@ -1,3 +1,4 @@
+// server.mjs
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
@@ -6,20 +7,20 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const fastify = Fastify({ logger: true });
+const app = Fastify({ logger: true });
 
 // CORS
-await fastify.register(cors, {
+await app.register(cors, {
   origin: process.env.FRONTEND_URL
 });
 
 // JWT
-await fastify.register(jwt, {
+await app.register(jwt, {
   secret: process.env.JWT_SECRET
 });
 
 // Google OAuth
-await fastify.register(oauthPlugin, {
+await app.register(oauthPlugin, {
   name: "googleOAuth2",
   scope: ["profile", "email"],
   credentials: {
@@ -34,37 +35,42 @@ await fastify.register(oauthPlugin, {
     "https://velvet-junction-middleware-production.up.railway.app/auth/google/callback"
 });
 
-// Root
-fastify.get("/", async () => {
-  return { status: "Fastify Auth Running 🚀" };
-});
+// Health check
+app.get("/", async () => ({
+  status: "Google Login Server Running 🚀"
+}));
 
-// Callback
-fastify.get("/auth/google/callback", async function (request, reply) {
-  const token =
-    await this.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
+// Google callback
+app.get("/auth/google/callback", async function (request, reply) {
+  try {
+    const token =
+      await this.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
 
-  const userInfo = await fetch(
-    "https://www.googleapis.com/oauth2/v2/userinfo",
-    {
-      headers: {
-        Authorization: `Bearer ${token.access_token}`
+    const user = await fetch(
+      "https://www.googleapis.com/oauth2/v2/userinfo",
+      {
+        headers: {
+          Authorization: `Bearer ${token.access_token}`
+        }
       }
-    }
-  ).then(res => res.json());
+    ).then(r => r.json());
 
-  const jwtToken = fastify.jwt.sign({
-    googleId: userInfo.id,
-    email: userInfo.email,
-    name: userInfo.name,
-    photo: userInfo.picture
-  });
+    const jwtToken = app.jwt.sign({
+      googleId: user.id,
+      email: user.email,
+      name: user.name,
+      picture: user.picture
+    }, { expiresIn: "7d" });
 
-  reply.redirect(
-    `${process.env.FRONTEND_URL}/login-success?token=${jwtToken}`
-  );
+    reply.redirect(
+      `${process.env.FRONTEND_URL}/login-success?token=${jwtToken}`
+    );
+  } catch (err) {
+    app.log.error(err, "Google login failed");
+    reply.status(500).send("Authentication failed");
+  }
 });
 
-// Listen
-const port = process.env.PORT || 3000;
-await fastify.listen({ port, host: "0.0.0.0" });
+// Start
+const PORT = process.env.PORT || 3000;
+await app.listen({ port: PORT, host: "0.0.0.0" });
