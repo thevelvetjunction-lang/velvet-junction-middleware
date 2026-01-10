@@ -1,33 +1,14 @@
-const Fastify = require("fastify");
+const express = require("express");
 
-console.log("🔥 server.js file loaded");
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-const app = Fastify({
-  logger: true
+// Root route
+app.get("/", (req, res) => {
+  res.send("👋 Hello World! Server is running successfully.");
 });
 
-app.get("/", async (request, reply) => {
-  reply.send({
-    status: "OK",
-    message: "🎉 Server is running perfectly on Railway (server.js)"
-  });
-});
-
-app.get("/test", async () => {
-  return "Hello from /test route 🚀";
-});
-
-const PORT = process.env.PORT || 8080;
-
-app.listen({ port: PORT, host: "0.0.0.0" }, (err) => {
-  if (err) {
-    console.error(err);
-    process.exit(1);
-  }
-  console.log(`🚀 Fastify listening on port ${PORT}`);
-});
-
-// Optional: log when Railway stops container
-process.on("SIGTERM", () => {
-  console.log("⚠️ SIGTERM received from Railway");
+// Start server
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
 });

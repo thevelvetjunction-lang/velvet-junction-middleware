@@ -1,11 +1,14 @@
 {
-  "name": "fastify-test",
+  "name": "nodejs-app",
   "version": "1.0.0",
-  "type": "module",
+  "description": "Simple Hello World Node.js app",
+  "main": "app.js",
+  "author": "alphasec",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2"
+  },
   "scripts": {
     "start": "node server.js"
-  },
-  "dependencies": {
-    "fastify": "^4.27.0"
   }
 }
