@@ -29,7 +29,7 @@ await app.register(oauthPlugin, {
     "https://velvet-junction-middleware-production.up.railway.app/auth/google/callback"
 });
 
-app.get("/", async () => ({
+app.get("/test", async () => ({
   status: "Google Login Server Running 🚀",
   message: "Use /auth/google to start Google Login flow"
 }));
