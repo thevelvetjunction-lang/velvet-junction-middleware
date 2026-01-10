@@ -1,22 +1,28 @@
 import Fastify from "fastify";
 
-const app = Fastify({ logger: true });
+console.log("🔥 server.mjs loaded");
 
-// Simple test route
-app.get("/", async () => {
-  return {
-    status: "OK",
-    message: "🎉 Server is running perfectly on Railway"
-  };
+const app = Fastify({
+  logger: true
 });
 
-// Another test route (optional)
-app.get("/test", async () => {
-  return "Hello from /test route 🚀";
+// VERY IMPORTANT: root route
+app.get("/", async (request, reply) => {
+  reply
+    .code(200)
+    .header("content-type", "application/json")
+    .send({
+      status: "OK",
+      message: "🎉 Railway server is alive"
+    });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 8080;
 
-await app.listen({ port: PORT, host: "0.0.0.0" });
+// IMPORTANT: await + 0.0.0.0
+await app.listen({
+  port: PORT,
+  host: "0.0.0.0"
+});
 
-app.log.info(`Test server running on port ${PORT}`);
+console.log("🚀 Fastify listening on", PORT);
