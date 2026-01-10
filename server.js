@@ -1,47 +1,72 @@
-const express = require("express");
-const passport = require("./passport");
-const jwt = require("jsonwebtoken");
-const cors = require("cors");
+import Fastify from "fastify";
+import cors from "@fastify/cors";
+import jwt from "@fastify/jwt";
+import oauthPlugin from "@fastify/oauth2";
+import dotenv from "dotenv";
 
-const app = express();
+dotenv.config();
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL
-}));
-
-app.use(passport.initialize());
-
-// 1️⃣ Start Google Login
-app.get("/auth/google",
-  passport.authenticate("google", {
-    scope: ["profile", "email"]
-  })
-);
-
-// 2️⃣ Google Callback
-app.get("/auth/google/callback",
-  passport.authenticate("google", { session: false }),
-  (req, res) => {
-
-    const user = {
-      googleId: req.user.id,
-      name: req.user.displayName,
-      email: req.user.emails[0].value,
-      photo: req.user.photos?.[0]?.value || ""
-    };
-
-    const token = jwt.sign(user, process.env.JWT_SECRET, {
-      expiresIn: "7d"
-    });
-
-    res.redirect(
-      `${process.env.FRONTEND_URL}/login-success?token=${token}`
-    );
-  }
-);
-
-app.get("/", (_, res) => {
-  res.send("Velvet Junction Auth Running 🚀");
+const fastify = Fastify({
+  logger: true
 });
 
-app.listen(process.env.PORT || 3000);
+// CORS
+await fastify.register(cors, {
+  origin: process.env.FRONTEND_URL
+});
+
+// JWT
+await fastify.register(jwt, {
+  secret: process.env.JWT_SECRET
+});
+
+// Google OAuth
+await fastify.register(oauthPlugin, {
+  name: "googleOAuth2",
+  scope: ["profile", "email"],
+  credentials: {
+    client: {
+      id: process.env.GOOGLE_CLIENT_ID,
+      secret: process.env.GOOGLE_CLIENT_SECRET
+    },
+    auth: oauthPlugin.GOOGLE_CONFIGURATION
+  },
+  startRedirectPath: "/auth/google",
+  callbackUri:
+    "https://velvet-junction-middleware-production.up.railway.app/auth/google/callback"
+});
+
+// ROOT CHECK
+fastify.get("/", async () => {
+  return { status: "Velvet Junction Fastify Auth Running 🚀" };
+});
+
+// GOOGLE CALLBACK
+fastify.get("/auth/google/callback", async function (request, reply) {
+  const token =
+    await this.googleOAuth2.getAccessTokenFromAuthorizationCodeFlow(request);
+
+  const userInfo = await fetch(
+    "https://www.googleapis.com/oauth2/v2/userinfo",
+    {
+      headers: {
+        Authorization: `Bearer ${token.access_token}`
+      }
+    }
+  ).then(res => res.json());
+
+  const jwtToken = fastify.jwt.sign({
+    googleId: userInfo.id,
+    email: userInfo.email,
+    name: userInfo.name,
+    photo: userInfo.picture
+  });
+
+  reply.redirect(
+    `${process.env.FRONTEND_URL}/login-success?token=${jwtToken}`
+  );
+});
+
+// START SERVER
+const port = process.env.PORT || 3000;
+await fastify.listen({ port, host: "0.0.0.0" });
