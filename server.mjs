@@ -3,7 +3,6 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import oauthPlugin from "@fastify/oauth2";
-import dotenv from "dotenv";
 
 dotenv.config();
 
